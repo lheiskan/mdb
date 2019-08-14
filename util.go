@@ -1,11 +1,8 @@
 package mdb
 
 import (
-	"bytes"
-
 	"github.com/abdullin/lex-go/tuple"
-	"github.com/bmatsuo/lmdb-go/lmdb"
-	"github.com/bmatsuo/lmdb-go/lmdbscan"
+	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
 
 	proto "github.com/golang/protobuf/proto"
@@ -45,85 +42,110 @@ func (tx *Tx) ReadProto(key []byte, pb proto.Message) error {
 }
 
 func (tx *Tx) GetNext(key []byte) (k, v []byte, err error) {
-	scanner := lmdbscan.New(tx.Tx, tx.DB)
-	defer scanner.Close()
-	if !scanner.Set(key, nil, lmdb.SetRange) {
-		err = lmdb.NotFound
+
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 1
+	it := tx.Tx.NewIterator(opts)
+	defer it.Close()
+
+	isFound := false
+	for it.Seek(key); it.ValidForPrefix(key); it.Next() {
+		item := it.Item()
+		k = item.Key()
+		v, err = item.ValueCopy(v)
+		if err != nil {
+			return
+		}
 		return
 	}
 
-	if !scanner.Scan() {
-		err = lmdb.NotFound
-		return
+	if !isFound {
+		err = badger.ErrKeyNotFound
 	}
-
-	k = scanner.Key()
-	v = scanner.Val()
-	err = scanner.Err()
 	return
 }
 
 func (tx *Tx) GetPrev(key []byte) (k, v []byte, err error) {
 
-	scanner := lmdbscan.New(tx.Tx, tx.DB)
-	defer scanner.Close()
-	if !scanner.Set(key, nil, lmdb.SetRange) {
-		err = lmdb.NotFound
-		return
-	}
-	if !scanner.Set(nil, nil, lmdb.Prev) {
-		err = lmdb.NotFound
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 1
+	opts.Reverse = true
+	it := tx.Tx.NewIterator(opts)
+	defer it.Close()
+
+	isFound := false
+	for it.Seek(key); it.ValidForPrefix(key); it.Next() {
+		item := it.Item()
+		k = item.Key()
+		v, err = item.ValueCopy(v)
+		if err != nil {
+			return
+		}
 		return
 	}
 
-	if !scanner.Scan() {
-		err = lmdb.NotFound
-		return
+	if !isFound {
+		err = badger.ErrKeyNotFound
 	}
-
-	k = scanner.Key()
-	v = scanner.Val()
-	err = scanner.Err()
 	return
 }
 
 func (tx *Tx) ScanRange(key []byte, row func(k, v []byte) error) error {
-	scanner := lmdbscan.New(tx.Tx, tx.DB)
-	defer scanner.Close()
-	if !scanner.Set(key, nil, lmdb.SetRange) {
-		return nil
-	}
 
-	for scanner.Scan() {
-		if !bytes.HasPrefix(scanner.Key(), key) {
-			break
-		}
-		err := row(scanner.Key(), scanner.Val())
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 1
+	it := tx.Tx.NewIterator(opts)
+	defer it.Close()
+	for it.Seek(key); it.ValidForPrefix(key); it.Next() {
+		item := it.Item()
+		k := item.Key()
+		var v []byte
+		v, err := item.ValueCopy(v)
 		if err != nil {
 			return err
 		}
+		row(k, v)
 	}
-	return scanner.Err()
+	return nil
 }
-func (t *Tx) DelRange(key []byte) error {
 
-	scanner := lmdbscan.New(t.Tx, t.DB)
-	defer scanner.Close()
-
-	if !scanner.Set(key, nil, lmdb.SetRange) {
+func (t *Tx) DelRange(prefix []byte) error {
+	deleteKeys := func(keysForDelete [][]byte) error {
+		for _, key := range keysForDelete {
+			if err := t.Tx.Delete(key); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
-	for scanner.Scan() {
-		if !bytes.HasPrefix(scanner.Key(), key) {
-			break
-		}
+	collectSize := 100000
+	return t.DB.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.AllVersions = false
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
 
-		err := t.Tx.Del(t.DB, scanner.Key(), nil)
-		if err != nil {
-			return err
+		keysForDelete := make([][]byte, 0, collectSize)
+		keysCollected := 0
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			key := it.Item().KeyCopy(nil)
+			keysForDelete = append(keysForDelete, key)
+			keysCollected++
+			if keysCollected == collectSize {
+				if err := deleteKeys(keysForDelete); err != nil {
+					return err
+				}
+				keysForDelete = make([][]byte, 0, collectSize)
+				keysCollected = 0
+			}
 		}
-	}
-
-	return scanner.Err()
+		if keysCollected > 0 {
+			if err := deleteKeys(keysForDelete); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

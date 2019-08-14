@@ -2,6 +2,7 @@ package mdb
 
 import (
 	"github.com/bmatsuo/lmdb-go/lmdb"
+	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
 )
 
@@ -12,9 +13,9 @@ func (db *DB) CreateRead() (tx *Tx, err error) {
 }
 
 func (db *DB) Read(fn TxOp) error {
-	return db.Env.View(func(t *lmdb.Txn) error {
+	return db.DB.View(func(t *badger.Txn) error {
 
-		tx := &Tx{db.DBI, db.Env, t}
+		tx := &Tx{db.DB, t}
 		if err := fn(tx); err != nil {
 			return errors.Wrap(err, "db.Env.View")
 		}
@@ -23,9 +24,9 @@ func (db *DB) Read(fn TxOp) error {
 }
 
 func (db *DB) Update(fn TxOp) error {
-	return db.Env.Update(func(t *lmdb.Txn) error {
+	return db.DB.Update(func(t *badger.Txn) error {
 
-		tx := &Tx{db.DBI, db.Env, t}
+		tx := &Tx{db.DB, t}
 		if err := fn(tx); err != nil {
 			return errors.Wrap(err, "db.Env.View")
 		}
@@ -38,14 +39,17 @@ func (db *DB) UpdateLocked(threadLocked bool, fn TxOp) error {
 		return db.Update(fn)
 	}
 
-	return db.Env.UpdateLocked(func(t *lmdb.Txn) error {
+	panic("UpdateLocked not implemented = todo")
+	/*
+		return db.Env.UpdateLocked(func(t *lmdb.Txn) error {
 
-		tx := &Tx{db.DBI, db.Env, t}
-		if err := fn(tx); err != nil {
-			return errors.Wrap(err, "db.Env.View")
-		}
-		return nil
-	})
+			tx := &Tx{db.DBI, db.Env, t}
+			if err := fn(tx); err != nil {
+				return errors.Wrap(err, "db.Env.View")
+			}
+			return nil
+		})
+	*/
 }
 
 func (db *DB) CreateWrite() (tx *Tx, err error) {
@@ -58,10 +62,7 @@ const (
 
 func (db *DB) CreateTransaction(flags uint) (tx *Tx, err error) {
 
-	var txn *lmdb.Txn
-	if txn, err = db.Env.BeginTxn(nil, flags); err != nil {
-		return nil, errors.Wrap(err, "BeginTxn(flags)")
-	}
-
-	return &Tx{db.DBI, db.Env, txn}, nil
+	// todo: read or update tx?
+	txn := db.DB.NewTransaction(true)
+	return &Tx{db.DB, txn}, nil
 }
