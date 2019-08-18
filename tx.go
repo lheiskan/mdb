@@ -1,6 +1,9 @@
 package mdb
 
 import (
+	"fmt"
+	"log"
+
 	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
 )
@@ -14,13 +17,14 @@ type Tx struct {
 func (tx *Tx) Get(key []byte) (data []byte, err error) {
 	var item *badger.Item
 	if item, err = tx.Tx.Get(key); err != nil {
-		if err == badger.ErrNoRewrite {
+		if err == badger.ErrKeyNotFound {
 			return nil, nil
 		}
-		return nil, errors.Wrap(err, "Tx.Get")
+		return nil, errors.Wrap(err, fmt.Sprintf("tx.go: Tx.Get '%s'", string(key)))
 	}
-	item.ValueCopy(data)
-	return data, nil
+	data, err = item.ValueCopy(data)
+	log.Println("Value copy", data)
+	return data, err
 }
 
 func (tx *Tx) Commit() error {

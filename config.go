@@ -11,6 +11,7 @@ type Config struct {
 	SizeMbs  int64
 	Mode     os.FileMode
 	MaxDBs   int
+	Readonly bool
 }
 
 func NewConfig() *Config {
@@ -20,6 +21,7 @@ func NewConfig() *Config {
 		SizeMbs:  1024,
 		Mode:     0644,
 		MaxDBs:   5,
+		Readonly: false,
 	}
 
 }

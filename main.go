@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"log"
 	"os"
 
 	"github.com/dgraph-io/badger"
@@ -16,7 +17,12 @@ func New(folder string, cfg *Config) (*DB, error) {
 
 	os.MkdirAll(folder, os.ModePerm)
 	opts := badger.DefaultOptions(folder)
-	//opts.ReadOnly  (todo)
+	if cfg.Readonly {
+		log.Println("Setting readonly to true")
+		opts.ReadOnly = true
+	} else {
+		log.Println("Setting readonly to false")
+	}
 	//https://stackoverflow.com/questions/28969455/golang-properly-instantiate-os-filemode
 	db, err := badger.Open(opts)
 	if err != nil {

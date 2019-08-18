@@ -28,7 +28,7 @@ func (tx *Tx) ReadProto(key []byte, pb proto.Message) error {
 	var err error
 
 	if data, err = tx.Get(key); key != nil {
-		return errors.Wrap(err, "tx.Get")
+		return errors.Wrap(err, "util.go: tx.Get")
 	}
 
 	if data == nil {
